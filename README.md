@@ -2,6 +2,8 @@
 
 Keep track of GitHub pull requests from Paseo with saved searches, background checks, and quick access to workspace chats.
 
+![GitHub PR Views showing saved searches, pull request statuses, and line changes](images/github-pr-views.png)
+
 - Create named views using GitHub search queries. The default **Mine** view shows your open PRs and can be edited or removed.
 - See review status, CI checks, labels, comments, and lines added or deleted.
 - Read PR details in Paseo, open them on GitHub, or start a workspace chat.
