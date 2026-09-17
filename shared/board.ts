@@ -1,0 +1,732 @@
+import { defineRpc } from "@getpaseo/plugin";
+import { z } from "zod";
+
+/**
+ * The four columns the board renders, in display order. Draft and open pull
+ * requests come from a single search and are split by `isDraft`, so the column
+ * id is presentation only — see board.server.ts.
+ */
+export const COLUMN_IDS = ["issues", "draft-prs", "open-prs", "discussions"] as const;
+
+export type ColumnId = (typeof COLUMN_IDS)[number];
+
+/**
+ * An issue a pull request closes, as GitHub's `closingIssuesReferences` reports
+ * it. The id is the same node id `gh search issues` returns, so the board can
+ * match a linked issue to its card by identity rather than by number.
+ */
+export const LinkedIssueSchema = z.object({
+  id: z.string(),
+  number: z.number().int(),
+  repository: z.string(),
+});
+
+/**
+ * A pull request's checks, folded to the three counts a card shows: passed,
+ * failed, and still running. Skipped and cancelled checks are counted nowhere —
+ * they are neither a result nor a wait — which is the same fold Paseo's own
+ * workspace hover card does, so the board and the sidebar agree about a pull
+ * request they both show.
+ */
+export const CheckSummarySchema = z.object({
+  passed: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  pending: z.number().int().min(0),
+});
+
+/**
+ * How the viewer is attached to an item, and the whole reason the board can
+ * show other people's work without drowning: the server runs one search per
+ * relationship and unions the results, so a card carries every relationship
+ * that found it and the filter bar is a client-side narrowing rather than
+ * another round trip.
+ *
+ * `owned` is the odd one out: it means the item lives under a watched owner
+ * and has no personal relationship at all, which is exactly the pile you want
+ * to be able to hide.
+ */
+export const RELATION_IDS = [
+  "author",
+  "review-requested",
+  "mentioned",
+  "assigned",
+  "owned",
+] as const;
+
+export const RelationSchema = z.enum(RELATION_IDS);
+
+export type Relation = z.output<typeof RelationSchema>;
+
+export const BoardItemSchema = z.object({
+  prReview: z.enum(["approved", "changes-requested", "review-required"]).nullable().optional(),
+  /** Saved searches can include closed and merged pull requests. */
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
+  prState: z.enum(["OPEN", "CLOSED", "MERGED"]).optional(),
+  id: z.string(),
+  number: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+  /** `owner/name`, the only repository form the board displays. */
+  repository: z.string(),
+  updatedAt: z.string(),
+  /** When it was opened, for the "Recently created" ordering. */
+  createdAt: z.string(),
+  /**
+   * The head commit's date, for the "Last commit" ordering. Null on anything
+   * that is not a pull request, and on a pull request GitHub reports no commit
+   * for — the ordering sends those to the end rather than guessing a date from
+   * `updatedAt`, which moves on a comment and would lie about the branch.
+   */
+  lastCommitAt: z.string().nullable(),
+  commentsCount: z.number().int(),
+  labels: z.array(z.string()),
+  /**
+   * Who opened it, or null when GitHub reports no author because the account is
+   * gone. The board queries its own repositories as well as its own work, so a
+   * card is not necessarily the viewer's; the card names the author when it is
+   * someone else's.
+   */
+  author: z.string().nullable(),
+  /** Column-specific trailing detail, e.g. a discussion's category. */
+  detail: z.string().nullable(),
+  /** The owner half of `repository`, for the owner filter. */
+  owner: z.string(),
+  /**
+   * Every relationship the viewer has to this item, deduplicated. Empty for a saved search hit without a known personal relationship.
+   */
+  relations: z.array(RelationSchema),
+  /**
+   * Pull requests only, empty everywhere else. The board renders these as pills
+   * on the pull request card and drops the matching cards from the Issues
+   * column, so one piece of work occupies one card.
+   */
+  linkedIssues: z.array(LinkedIssueSchema),
+  /**
+   * Open pull requests only. Null wherever the board shows no pills at all: an
+   * item that is not a pull request, a draft — whose CI is not yet anyone's
+   * business — or a head commit nothing has ever reported a check on.
+   */
+  checks: CheckSummarySchema.nullable(),
+});
+
+/**
+ * A label as its repository defines it. `color` is six hex digits with no `#`,
+ * exactly as GitHub stores it — it is data belonging to the label, not one of
+ * the plugin theme's tokens, which is why the menu is allowed to paint with it.
+ */
+export const RepositoryLabelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: z.string(),
+  description: z.string().nullable(),
+});
+
+/**
+ * The first message a card is sent with, one template per column — the four
+ * columns are the four kinds of work the board shows, so the column id doubles
+ * as the template key. It is what the launch dialog opens on; the user is free
+ * to rewrite it before sending.
+ *
+ * Templates carry `{url}`, `{title}`, `{number}` and `{repository}`; anything
+ * else in braces is left alone rather than blanked, so an unknown placeholder
+ * shows up in the prompt instead of vanishing.
+ */
+export const PromptSetSchema = z.object({
+  issues: z.string(),
+  "draft-prs": z.string(),
+  "open-prs": z.string(),
+  discussions: z.string(),
+});
+
+export const PromptSettingsSchema = z.object({
+  /** Always complete on the way out: the server fills a blank with its default. */
+  byType: PromptSetSchema,
+  /**
+   * Keyed by Paseo project id, and partial on purpose — a type absent here, or
+   * present but blank, inherits `byType`. Storing the inherited value instead
+   * would freeze a copy that stops tracking the default it came from.
+   *
+   * Projects rather than repositories: a card can only be sent to a project in
+   * the first place, and a fork's origin and upstream are two repositories but
+   * one project, which should not need configuring twice.
+   */
+  byProject: z.record(z.string(), PromptSetSchema.partial()),
+});
+
+/** A Paseo project, as the settings view lists it to be configured. */
+export const ProjectRefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
+export const BoardColumnSchema = z.object({
+  id: z.enum(COLUMN_IDS),
+  title: z.string(),
+  items: z.array(BoardItemSchema),
+  /**
+   * Set when this column alone failed. Columns fail independently so a missing
+   * `read:discussion` scope does not blank the issues and pull request columns.
+   */
+  error: z.string().nullable(),
+});
+
+export const BoardSchema = z.object({
+  /** The concrete login every query ran against, never the `@me` alias. */
+  login: z.string(),
+  columns: z.array(BoardColumnSchema),
+  /**
+   * `owner/name` to project id, for the repositories on this board only. The
+   * surface needs it to pick a template during the press gesture, and it is
+   * keyed the way a card spells its repository so no host parsing is needed on
+   * the client.
+   */
+  repositoryProjects: z.record(z.string(), z.string()),
+  fetchedAt: z.string(),
+});
+
+export type ProjectRef = z.output<typeof ProjectRefSchema>;
+export type PromptSet = z.output<typeof PromptSetSchema>;
+export type PromptSettings = z.output<typeof PromptSettingsSchema>;
+export type LinkedIssue = z.output<typeof LinkedIssueSchema>;
+export type RepositoryLabel = z.output<typeof RepositoryLabelSchema>;
+export type CheckSummary = z.output<typeof CheckSummarySchema>;
+export type BoardItem = z.output<typeof BoardItemSchema>;
+export type BoardColumn = z.output<typeof BoardColumnSchema>;
+export type Board = z.output<typeof BoardSchema>;
+
+/**
+ * The exact shape GitHub itself enforces for an organisation or user login:
+ * 1-39 characters, letters, digits or a hyphen, never leading, trailing or
+ * doubled. Anchoring the format here — rather than accepting any string — is
+ * what keeps a watched owner from smuggling another search qualifier (a
+ * space, a colon) into the `user:<owner>` term `ownedBuckets` builds from it.
+ */
+const GITHUB_LOGIN_PATTERN = /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d]))*$/;
+
+const GitHubLoginSchema = z
+  .string()
+  .max(39)
+  .regex(GITHUB_LOGIN_PATTERN, "not a valid GitHub login");
+
+/**
+ * Bounded the same way `limit` is bounded right beside it: each entry becomes
+ * its own aliased search in one GraphQL query (`ownedBuckets` on the board,
+ * the `bN: organization(...)` aliases in `server/projects/list.ts`), so an
+ * unbounded array here is an unbounded query, not just an unbounded loop.
+ */
+const WATCHED_OWNERS_MAX = 50;
+const WatchedOwnersSchema = z.array(GitHubLoginSchema).max(WATCHED_OWNERS_MAX).default([]);
+
+export const loadBoard = defineRpc({
+  name: "board.load",
+  input: z.object({
+    /** Omitted on first load: the server falls back to the saved login. */
+    login: z.string().optional(),
+    /**
+     * The organisations and users to sweep beyond the viewer's own buckets.
+     * They travel in the request rather than being read on the daemon because
+     * a plugin server registers settings but never reads them: the document
+     * belongs to the app, so the caller is the only side that has it.
+     */
+    owners: WatchedOwnersSchema,
+    limit: z.number().int().min(1).max(100).default(30),
+    /** Set by the Refresh button to bypass the server's short-lived board cache. */
+    force: z.boolean().default(false),
+  }),
+  output: BoardSchema,
+});
+
+export const saveLogin = defineRpc({
+  name: "board.save-login",
+  input: z.object({ login: z.string() }),
+  output: z.object({ login: z.string() }),
+});
+
+/**
+ * One GitHub Projects v2 board the login owns. Projects are their own object
+ * on GitHub, not a field of an issue, so they are fetched on their own rather
+ * than folded into the four columns: an item can sit in several projects, and
+ * a project can hold drafts that are not issues at all.
+ */
+export const ProjectSummarySchema = z.object({
+  id: z.string(),
+  number: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+  shortDescription: z.string().nullable(),
+  /** The login that owns the board, which is not always the queried login. */
+  owner: z.string(),
+  closed: z.boolean(),
+  updatedAt: z.string(),
+  itemCount: z.number().int().min(0),
+});
+
+export type ProjectSummary = z.output<typeof ProjectSummarySchema>;
+
+/**
+ * Projects v2 needs the `read:project` scope, which `gh auth login` does not
+ * grant by default, so a token without it is the common case rather than an
+ * error: `error` carries the sentence to show, and `projects` comes back
+ * empty. The view says what to run instead of rendering a failure.
+ */
+export const listProjects = defineRpc({
+  name: "board.projects",
+  input: z.object({
+    login: z.string().optional(),
+    /** Same reason as `loadBoard.owners`: the server cannot read settings. */
+    owners: WatchedOwnersSchema,
+    force: z.boolean().default(false),
+  }),
+  output: z.object({
+    projects: z.array(ProjectSummarySchema),
+    error: z.string().nullable(),
+    /** True when the only thing missing is the scope, so the view can say so. */
+    needsScope: z.boolean(),
+  }),
+});
+
+/**
+ * An item on a project board. A draft has no repository, number or url: it is
+ * a note that lives only in the project until someone converts it, so those
+ * fields are nullable rather than faked.
+ */
+export const ProjectItemSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["issue", "pull-request", "draft"]),
+  title: z.string(),
+  url: z.string().nullable(),
+  repository: z.string().nullable(),
+  number: z.number().int().nullable(),
+  state: z.enum(["open", "draft", "closed", "merged"]).nullable(),
+  prReview: z.enum(["approved", "changes-requested", "review-required"]).nullable().optional(),
+  author: z.string().nullable(),
+  labels: z.array(z.string()),
+  updatedAt: z.string(),
+});
+
+export type ProjectItem = z.output<typeof ProjectItemSchema>;
+
+/**
+ * One project's items grouped the way the project groups them: by its Status
+ * single-select field, in the order the field declares its options, with
+ * whatever has no status last. That is the board GitHub renders, so the plugin
+ * renders the same rather than inventing an order.
+ */
+export const loadProject = defineRpc({
+  name: "board.project",
+  input: z.object({
+    owner: z.string().min(1),
+    number: z.number().int(),
+    force: z.boolean().default(false),
+  }),
+  output: z.object({
+    title: z.string(),
+    url: z.string(),
+    columns: z.array(
+      z.object({
+        /** The Status option, or an empty string for the no-status group. */
+        name: z.string(),
+        items: z.array(ProjectItemSchema),
+      }),
+    ),
+  }),
+});
+
+/**
+ * How the workspace is cut: on the project's own checkout, or on a fresh Paseo
+ * worktree branched off it. The daemon spells these as the two `source` kinds
+ * of `workspace.create`, and only a git project can be worktreed.
+ */
+export const IsolationSchema = z.enum(["local", "worktree"]);
+
+export type Isolation = z.output<typeof IsolationSchema>;
+
+/**
+ * What the launch dialog was set to the last time a card was sent, so the next
+ * card opens on the same agent rather than back at the daemon's defaults.
+ *
+ * Every field is nullable because a saved choice is a *preference*, not a
+ * promise: a model that has since disappeared, or a provider that is no longer
+ * installed, must fall back to what the host actually offers rather than fail
+ * the send.
+ */
+export const LaunchDefaultsSchema = z.object({
+  /** Provider id as the providers snapshot spells it, e.g. `claude`. */
+  provider: z.string().nullable(),
+  /** Model id within that provider. Never blank: the SDK needs `provider/model`. */
+  model: z.string().nullable(),
+  /** The provider's permission mode, when it has any. */
+  modeId: z.string().nullable(),
+  /** The model's thinking level, when it has any. */
+  thinkingOptionId: z.string().nullable(),
+  isolation: IsolationSchema,
+});
+
+export type LaunchDefaults = z.output<typeof LaunchDefaultsSchema>;
+
+/**
+ * Everything the launch dialog needs that only the daemon can answer: which
+ * project this card belongs to, whether that project can be worktreed, and what
+ * the last send was configured with.
+ *
+ * The provider, model, thinking and permission options are *not* here — the
+ * dialog reads those from the host directly with `usePaseo().providers`, the
+ * same snapshot Paseo's own composer renders, so this plugin never has to
+ * mirror a provider catalogue that changes underneath it.
+ */
+export const sendOptions = defineRpc({
+  name: "board.send-options",
+  input: z.object({
+    /** `owner/name`, matched against the project's GitHub remotes. */
+    repository: z.string(),
+    /** The card's URL, which is where the forge host comes from. */
+    url: z.string(),
+  }),
+  output: z.object({
+    project: z.object({
+      id: z.string(),
+      name: z.string(),
+      /**
+       * The checkout the workspace is cut from, and the cwd the provider
+       * snapshot is resolved against — models can differ per directory.
+       */
+      rootPath: z.string(),
+      /** False for a non-git project, where "New worktree" cannot be offered. */
+      supportsWorktree: z.boolean(),
+    }),
+    defaults: LaunchDefaultsSchema,
+  }),
+});
+
+/**
+ * Hands one card to a fresh workspace and starts the conversation: the
+ * repository is matched to a Paseo project on the daemon, a workspace is
+ * created on that project (locally or as a worktree), an agent is created in it
+ * with the chosen provider, model, thinking level and permission mode, and the
+ * prompt is sent as its first message.
+ *
+ * The chosen configuration is saved as the next card's defaults, in the same
+ * round trip — a second RPC to persist it would be a second failure mode for no
+ * gain.
+ */
+export const sendToChat = defineRpc({
+  name: "board.send-to-chat",
+  input: z.object({
+    /** `owner/name`, matched against the project's GitHub remote. */
+    repository: z.string(),
+    number: z.number().int(),
+    title: z.string(),
+    /** The card's URL, and the source of the forge host. */
+    url: z.string(),
+    /**
+     * Carried for the timeline row alone, which is why they are the only two
+     * `BoardItem` fields here that the launch itself never reads. The prompt is
+     * a rendered template and may mention none of this; the row has to identify
+     * the card whatever the template said.
+     */
+    author: z.string().nullable(),
+    labels: z.array(z.string()),
+    /** The first message, as the dialog left it — already rendered from the template. */
+    prompt: z.string().min(1),
+    isolation: IsolationSchema,
+    provider: z.string().min(1),
+    /** Required: the SDK creates agents by `provider/model` and rejects a bare provider. */
+    model: z.string().min(1),
+    modeId: z.string().nullable(),
+    thinkingOptionId: z.string().nullable(),
+  }),
+  output: z.object({
+    workspaceId: z.string(),
+    /** What the new workspace ended up called, for the confirmation message. */
+    workspaceName: z.string(),
+    projectName: z.string(),
+    /** The agent the prompt was sent to, so the app can open straight into it. */
+    agentId: z.string(),
+  }),
+});
+
+/**
+ * The card that opens the transcript of an agent this board launched.
+ *
+ * Without it the GitHub item survives only as prose inside the rendered prompt,
+ * where it is whatever the template happened to interpolate — a template that
+ * mentions neither the number nor the URL leaves the agent's own transcript with
+ * no way back to the card it came from. This row is a persisted timeline entry
+ * appended by `sendToChatHandler`, so it is part of the agent's history rather
+ * than app state, and it survives a reload, a reconnect, and a different client.
+ *
+ * The `kind` and `version` that key it are in `shared/timeline.ts` rather than
+ * here, because the daemon writes them and this file has to stay `import
+ * type`-only to the server — the same split, and the same reason, as
+ * `shared/image-host.ts`. Only the client parses a row, so the schema stays.
+ *
+ * A row already written carries the version it was written with, so **bump the
+ * version rather than change this shape**, and leave the old renderer
+ * registered for as long as agents launched by an older build are readable.
+ */
+export const BoardTimelineItemSchema = z.object({
+  /** `owner/name`, as the card displayed it. */
+  repository: z.string(),
+  number: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+  author: z.string().nullable(),
+  labels: z.array(z.string()),
+});
+
+export type BoardTimelineItem = z.infer<typeof BoardTimelineItemSchema>;
+
+/**
+ * Every label the repository defines, for the menu a card opens on right-click.
+ * Which of them the card already carries is `BoardItem.labels`, so this is the
+ * catalogue and the item is the selection.
+ */
+export const listLabels = defineRpc({
+  name: "board.labels",
+  input: z.object({ repository: z.string().min(1) }),
+  output: z.object({ labels: z.array(RepositoryLabelSchema) }),
+});
+
+/**
+ * Adds or removes one label, and answers with the item's labels as GitHub
+ * reports them *after* the change rather than with what the caller assumed.
+ * Someone else editing the same issue therefore corrects the card instead of
+ * being silently overwritten by it.
+ *
+ * One label per call, because the menu applies each toggle as it is pressed:
+ * a menu that batched until it closed would leave the user unsure whether
+ * anything had happened, and a dropped press impossible to notice.
+ */
+export const toggleLabel = defineRpc({
+  name: "board.toggle-label",
+  input: z.object({
+    /** The issue or pull request node id — GitHub calls the type `Labelable`. */
+    itemId: z.string().min(1),
+    labelId: z.string().min(1),
+    /** True adds the label, false removes it. */
+    add: z.boolean(),
+  }),
+  output: z.object({ labels: z.array(z.string()) }),
+});
+
+/**
+ * How a merge lands on the base branch. The three GitHub allows, spelled the
+ * way a repository's settings spell them. A repository can forbid any of them,
+ * which is why `ReviewState` carries the ones it permits rather than the panel
+ * assuming all three.
+ */
+export const MergeMethodSchema = z.enum(["merge", "squash", "rebase"]);
+
+export type MergeMethod = z.output<typeof MergeMethodSchema>;
+
+/**
+ * Everything the panel needs to decide whether Approve and Merge are pressable,
+ * answered by GitHub rather than guessed on the client. Null on anything that
+ * is not a pull request.
+ *
+ * The two capability flags are folded here rather than left to the client
+ * because each is several facts at once (who authored it, what the viewer's
+ * permission on the repository is, whether the branch still merges), and a
+ * client that recomputed them would drift from the server that acts on them.
+ */
+export const ReviewStateSchema = z.object({
+  /**
+   * Whether the viewer's own latest review is an approval. GitHub's
+   * `reviewDecision` is not that question: it stays null on a repository that
+   * requires no review, however many approvals the pull request has, so a
+   * button keyed on it would still read "Approve" right after approving.
+   */
+  viewerHasApproved: z.boolean(),
+  /**
+   * GitHub refuses an approval on your own pull request, so the button says so
+   * instead of offering a press that always fails.
+   */
+  viewerDidAuthor: z.boolean(),
+  viewerCanApprove: z.boolean(),
+  viewerCanMerge: z.boolean(),
+  /**
+   * `unknown` is GitHub still computing the merge commit, not a failure: it
+   * answers that for a few seconds after a push. Refresh is what resolves it.
+   */
+  mergeable: z.enum(["mergeable", "conflicting", "unknown"]),
+  /** The methods this repository allows, in the order the picker offers them. */
+  mergeMethods: z.array(MergeMethodSchema),
+});
+
+export type ReviewState = z.output<typeof ReviewStateSchema>;
+
+/**
+ * What a card knows about itself already — title, repository, labels, author —
+ * is left off this shape on purpose: the panel paints those from the card the
+ * moment it opens, and this round trip only adds what the search never fetched.
+ */
+export const ItemDetailsSchema = z.object({
+  /** Current approvals, excluding dismissed and superseded opinions. */
+  approvedBy: z.array(z.string()).optional(),
+  /**
+   * `open` for everything the board lists today; the rest cover an item that
+   * changed on GitHub after the board was fetched, which the panel is the first
+   * place to notice. A draft pull request reads `draft` rather than `open`.
+   */
+  state: z.enum(["open", "draft", "closed", "merged"]),
+  /** Markdown, exactly as GitHub stores it. Empty when the author wrote nothing. */
+  body: z.string(),
+  createdAt: z.string(),
+  /** Logins. Always empty for a discussion, which GitHub does not assign. */
+  assignees: z.array(z.string()),
+  /** Pull requests only: the branch under review and the one it targets. */
+  branches: z.object({ head: z.string(), base: z.string() }).nullable(),
+  /** Pull requests only: what Approve and Merge are allowed to do right now. */
+  review: ReviewStateSchema.nullable(),
+});
+
+export type ItemDetails = z.output<typeof ItemDetailsSchema>;
+
+/**
+ * The body and status of one card, for the detail panel. Looked up by node id
+ * rather than by repository and number because `node(id:)` needs no type
+ * argument — the same id opens an issue, a pull request or a discussion — and
+ * because the id is what every card already carries.
+ */
+export const loadItem = defineRpc({
+  name: "board.item",
+  input: z.object({
+    id: z.string().min(1),
+    /** Set by the panel's Refresh button to bypass the server's short-lived cache. */
+    force: z.boolean().default(false),
+  }),
+  output: ItemDetailsSchema,
+});
+
+/**
+ * Approves one pull request, and answers with the item as GitHub reports it
+ * *after* the review. That is the contract the label toggle keeps, and for the
+ * same reason: the panel repaints from the forge's answer rather than from
+ * what the press assumed, so a decision someone else changed in the meantime
+ * corrects the panel instead of being painted over by it.
+ *
+ * An empty body is an approval with no comment, which is what pressing the
+ * button alone means.
+ */
+export const approvePullRequest = defineRpc({
+  name: "board.approve",
+  input: z.object({
+    /** The pull request node id, the same id every card carries. */
+    id: z.string().min(1),
+    body: z.string().default(""),
+  }),
+  output: ItemDetailsSchema,
+});
+
+/**
+ * Merges one pull request with the method the picker chose, and answers with
+ * the refreshed item, whose `state` is then `merged`.
+ *
+ * The method is required rather than defaulted: a repository that forbids
+ * squashing and one that forbids merge commits would otherwise land the same
+ * press differently, and this is the one action here that cannot be undone.
+ */
+export const mergePullRequest = defineRpc({
+  name: "board.merge",
+  input: z.object({
+    id: z.string().min(1),
+    method: MergeMethodSchema,
+  }),
+  output: ItemDetailsSchema,
+});
+
+export const ItemCommentSchema = z.object({
+  id: z.string(),
+  /** Null for a deleted account, as with `BoardItem.author`. */
+  author: z.string().nullable(),
+  createdAt: z.string(),
+  /** Markdown, as GitHub stores it. */
+  body: z.string(),
+  /**
+   * 0 for a comment on the item, 1 for a reply to one — discussions thread
+   * their comments one level deep, and the panel indents replies to say so.
+   * Issue and pull request comments are always 0.
+   */
+  depth: z.number().int().min(0),
+});
+
+export type ItemComment = z.output<typeof ItemCommentSchema>;
+
+/**
+ * The conversation on one card, loaded on request from the bottom of the
+ * detail panel rather than with the body: comments are the long tail of an
+ * item, and most panels are opened to read the description.
+ *
+ * For a pull request this is the conversation tab only — review comments on
+ * the diff are a different object and are not fetched.
+ */
+export const loadComments = defineRpc({
+  name: "board.comments",
+  input: z.object({
+    id: z.string().min(1),
+    /** Set by the panel's Refresh button to bypass the server's short-lived cache. */
+    force: z.boolean().default(false),
+  }),
+  output: z.object({
+    comments: z.array(ItemCommentSchema),
+    /** True when GitHub has more than the page fetched; the rest are on GitHub. */
+    truncated: z.boolean(),
+  }),
+});
+
+/**
+ * One image from a GitHub host, fetched with the daemon's `gh` token and
+ * returned inline. Data URLs rather than bytes because the client renders it
+ * with `Image`, which takes a URI; the size cap keeps a stray full-resolution
+ * photo from becoming one very large RPC.
+ */
+export const loadImage = defineRpc({
+  name: "board.image",
+  input: z.object({ url: z.string().url() }),
+  output: z.object({
+    /** `data:<content-type>;base64,…`. */
+    dataUrl: z.string(),
+  }),
+});
+
+/**
+ * The settings a version before 0.4.0 kept in the daemon's own file and this
+ * one keeps in the host settings store. Answered once, so the app can copy
+ * them across; `found: false` for a fresh install or a file already migrated.
+ *
+ * The daemon cannot do this itself: a settings document is written over the
+ * client's RPC channel and there is no server-side equivalent, so the values
+ * have to make the trip out to the app and back.
+ *
+ * `byType` may be partial here — an older file only stored the templates that
+ * differed — and the client completes it against the defaults it owns.
+ */
+export const takeLegacySettings = defineRpc({
+  name: "board.legacy-settings",
+  input: z.object({}),
+  output: z.discriminatedUnion("found", [
+    z.object({ found: z.literal(false) }),
+    z.object({
+      found: z.literal(true),
+      hiddenRepositories: z.array(z.string()).nullable(),
+      prompts: PromptSettingsSchema.extend({
+        byType: PromptSetSchema.partial(),
+      }).nullable(),
+      detailWidthFraction: z.number().min(0).max(1).nullable(),
+    }),
+  ]),
+});
+
+/**
+ * Stamps the daemon's file as migrated and drops the legacy keys from it.
+ *
+ * Called only after every document has actually been written, so a failed or
+ * interrupted migration is retried on the next load rather than silently
+ * losing the values it was carrying.
+ */
+export const legacySettingsTaken = defineRpc({
+  name: "board.legacy-settings-taken",
+  input: z.object({}),
+  output: z.object({}),
+});
