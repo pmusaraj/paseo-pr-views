@@ -42,8 +42,8 @@ export default function contribute(client: PluginClientContext) {
   const sidebar = (unread: boolean) =>
     client.addSidebarItem({
       id: "views",
-      title: "GitHub PRs",
-      icon: unread ? "BellDot" : "GitPullRequest",
+      title: unread ? "GitHub PRs 🌱" : "GitHub PRs",
+      icon: "GitPullRequest",
       surface: "views",
     });
   let removeSidebar = sidebar(false);
