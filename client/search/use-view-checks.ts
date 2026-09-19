@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import type { SavedView } from "../../shared/saved-views";
 import type { BackgroundStatus } from "../../shared/background";
 import type { BackgroundClient } from "./background-client";
+import { seenRevision, type SearchSnapshot } from "./search-snapshot";
 
 export function checkFor(view: SavedView | null, checks: BackgroundStatus) {
   if (!view?.backgroundCheck) return undefined;
@@ -13,7 +14,7 @@ export function useViewChecks(
   background: BackgroundClient,
   selected: SavedView | null,
   preview: string | null,
-  refresh: () => Promise<void>,
+  seen: SearchSnapshot | null,
   onError: (error: string) => void,
 ) {
   const checks = useSyncExternalStore(
@@ -23,10 +24,11 @@ export function useViewChecks(
   const selectedCheck = checkFor(selected, checks);
   const selectedId = selected?.id;
   const selectedQuery = selected?.query;
-  const revision = selectedCheck?.unread ? selectedCheck.revision : null;
+  // A daemon check can cover more than the displayed result cap. Do not clear
+  // its marker unless this snapshot covers the whole search and that revision.
+  const revision = seenRevision(seen);
   useEffect(() => {
     if (preview !== null || !selectedId || !selectedQuery || !revision) return;
-    void refresh();
     void background
       .acknowledge(selectedId, selectedQuery, revision)
       .catch((error) => {
@@ -40,7 +42,6 @@ export function useViewChecks(
     selectedQuery,
     revision,
     preview,
-    refresh,
     onError,
   ]);
   return { checks, selectedCheck };

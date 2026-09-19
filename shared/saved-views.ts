@@ -11,6 +11,12 @@ export const SavedViewSchema = z.object({
 });
 export type SavedView = z.output<typeof SavedViewSchema>;
 
+export const listSavedViews = defineRpc({
+  name: "views.list",
+  input: z.object({}),
+  output: z.array(SavedViewSchema),
+});
+
 export const MINE_VIEW: SavedView = {
   id: "mine",
   name: "Mine",
@@ -38,6 +44,7 @@ export const savedViewsSettings = defineSettings({
 });
 
 export const SearchItemSchema = BoardItemSchema.extend({
+  headOid: z.string().nullable().optional(),
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   isDraft: z.boolean(),
 });

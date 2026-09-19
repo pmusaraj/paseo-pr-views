@@ -23,6 +23,7 @@ const ConnectionSchema = z.object({
         isDraft: z.boolean(),
         additions: z.number().int().nonnegative(),
         deletions: z.number().int().nonnegative(),
+        headRefOid: z.string().nullable().optional(),
       })
       .passthrough()
       .nullable(),
@@ -30,7 +31,7 @@ const ConnectionSchema = z.object({
 });
 
 export const SEARCH_QUERY = `query($search: String!, $cursor: String) {
-  search(query: $search, type: ISSUE_ADVANCED, first: 30, after: $cursor) {
+  search(query: $search, type: ISSUE_ADVANCED, first: 100, after: $cursor) {
     issueCount
     pageInfo { hasNextPage endCursor }
     nodes { ${PULL_REQUEST_SELECTION} }
@@ -65,6 +66,7 @@ export async function fetchSearchPage(
             linkedIssues: toLinkedIssues(node),
             additions: node.additions,
             deletions: node.deletions,
+            headOid: node.headRefOid ?? null,
             state: node.state,
             prState: node.state,
             isDraft: node.isDraft,

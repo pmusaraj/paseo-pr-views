@@ -15,6 +15,7 @@ function response() {
             isDraft: false,
             additions: 123,
             deletions: 45,
+            headRefOid: "commit-oid",
             updatedAt: "2026-01-01",
             repository: { nameWithOwner: "team/project" },
           },
@@ -59,6 +60,7 @@ describe("fetchSearchPage", () => {
         `search=${query}`,
         "cursor=previous",
         expect.stringContaining("type: ISSUE_ADVANCED"),
+        expect.stringContaining("first: 100"),
       ]),
     );
     expect(result.items.map((item) => item.id)).toEqual([
@@ -70,6 +72,7 @@ describe("fetchSearchPage", () => {
       repository: "team/project",
       additions: 123,
       deletions: 45,
+      headOid: "commit-oid",
       relations: [],
       checks: { passed: 2 },
     });

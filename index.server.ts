@@ -7,7 +7,7 @@ import {
 } from "./server/background/storage";
 import { fetchViewIds } from "./server/background/search";
 import { resolveViewerLogin } from "./server/github/gh";
-import { savedViewsSettings, searchPullRequests } from "./shared/saved-views";
+import { listSavedViews, savedViewsSettings, searchPullRequests } from "./shared/saved-views";
 import { searchPullRequestsHandler } from "./server/search/handler";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
@@ -54,6 +54,7 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(acknowledgeView, (input) => monitor.acknowledge(input));
   server.handle(searchPullRequests, searchPullRequestsHandler);
+  server.handle(listSavedViews, readViews);
   server.registerSettings(savedViewsSettings);
   server.handle(loadItem, loadItemHandler);
   server.handle(loadComments, loadCommentsHandler);

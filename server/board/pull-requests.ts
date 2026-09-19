@@ -18,6 +18,7 @@ export const PULL_REQUEST_SELECTION = `... on PullRequest {
   state
   additions
   deletions
+  headRefOid
   reviewDecision
   latestOpinionatedReviews(first: 100) {
     nodes { state }

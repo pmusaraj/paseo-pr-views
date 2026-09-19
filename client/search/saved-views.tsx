@@ -1,6 +1,7 @@
 import { checkFor, useViewChecks } from "./use-view-checks";
 import type { BackgroundClient } from "./background-client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { SEARCH_SCOPE, type ForegroundClient } from "./foreground-client";
 import { type PluginSurfaceProps, useSettings } from "@getpaseo/plugin/client";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import type { Board } from "../../shared/board";
@@ -23,12 +24,18 @@ export function SavedViews({
   props,
   styles,
   background,
+  foreground,
 }: {
   props: PluginSurfaceProps;
   styles: Styles;
   background: BackgroundClient;
+  foreground: ForegroundClient;
 }) {
   const settings = useSettings(savedViewsSettings);
+  useEffect(() => {
+    if (settings.status === "ready") foreground.setViews(settings.values.views);
+  }, [foreground, settings]);
+  const foregroundStatus = useSyncExternalStore(foreground.subscribe, foreground.getSnapshot);
   const boardSettings = useBoardSettings();
   const [editor, setEditor] = useState<SavedView | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -39,13 +46,16 @@ export function SavedViews({
     settings.status === "ready" ? selectedView(settings.values) : null;
   const search = useSearchResults(
     preview ?? selected?.query ?? null,
-    props.host.id,
+    SEARCH_SCOPE,
+    preview === null ? selected?.id ?? null : null,
+    background,
+    settings.status === "ready" ? settings.values.views : [],
   );
   const { checks, selectedCheck } = useViewChecks(
     background,
     selected,
     preview,
-    search.refresh,
+    search.seen,
     setSaveError,
   );
   const rows = useMemo<BoardRow[]>(
@@ -202,7 +212,7 @@ export function SavedViews({
                     }
                   >
                     {view.name}
-                    {checkFor(view, checks)?.unread ? (
+                    {checkFor(view, checks)?.unread || foregroundStatus.newViewIds.includes(view.id) ? (
                       <Text
                         accessibilityLabel="New pull requests"
                         style={{ color: styles.prStatusColors.approved }}
@@ -315,7 +325,7 @@ export function SavedViews({
       <BoardBody
         surfaceProps={props}
         styles={styles}
-        busy={search.isFetching}
+        busy={search.isInitialLoading}
         board={board}
         displayRows={rows}
         renderRow={overlays.renderRow}

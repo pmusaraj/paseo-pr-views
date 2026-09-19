@@ -2,6 +2,7 @@ import { Pressable, Text, View } from "react-native";
 import type { Styles } from "../theme/use-styles";
 import { openExternalUrl } from "../web";
 import type { useSearchResults } from "./use-search-results";
+import { RESULT_LIMIT } from "./search-snapshot";
 
 export function ResultsToolbar({
   search,
@@ -19,11 +20,22 @@ export function ResultsToolbar({
         {canRefresh ? (
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ disabled: search.isFetching, busy: search.isFetching }}
             disabled={search.isFetching}
             style={styles.ghostButton}
-            onPress={() => void search.refresh()}
+            onPress={() => {
+              if (search.isFetching) return;
+              if (search.updateCount > 0) search.applyUpdates();
+              else void search.refresh();
+            }}
           >
-            <Text style={styles.ghostButtonLabel}>Refresh results</Text>
+            <Text style={styles.ghostButtonLabel}>
+              {search.isFetching
+                ? "Checking for Updates…"
+                : search.updateCount > 0
+                  ? `Show updates (${search.updateCount})`
+                  : "Refresh results"}
+            </Text>
           </Pressable>
         ) : null}
         {search.page === null ? null : (
@@ -39,19 +51,9 @@ export function ResultsToolbar({
             <Text style={styles.ghostButtonLabel}>Open search on GitHub</Text>
           </Pressable>
         )}
-        {search.hasNextPage ? (
-          <Pressable
-            accessibilityRole="button"
-            disabled={search.isFetching}
-            style={styles.ghostButton}
-            onPress={() => void search.fetchNextPage()}
-          >
-            <Text style={styles.ghostButtonLabel}>Load more</Text>
-          </Pressable>
-        ) : null}
         {search.page === null ? null : (
           <Text style={styles.sectionHint}>
-            {`${search.items.length} of ${search.page.total} results`}
+            {`${search.items.length} of ${search.page.total} results${search.page.total > RESULT_LIMIT ? ` (limit ${RESULT_LIMIT})` : ""}`}
           </Text>
         )}
       </View>

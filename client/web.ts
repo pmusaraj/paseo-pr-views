@@ -5,7 +5,7 @@
  * `client/` never reaches for `window` or `document` and typechecks without the
  * DOM library.
  */
-import { Linking, Platform } from "react-native";
+import { AppState, Linking, Platform } from "react-native";
 
 /**
  * `Linking.openURL` is `window.open` on the desktop renderer, and the main
@@ -63,6 +63,8 @@ export function openExternalUrl(url: string): void {
 /** Only what this module reads off the web globals; the DOM library stays off. */
 interface WebGlobals {
   document?: {
+    visibilityState?: string;
+    hasFocus?: () => boolean;
     addEventListener?: (
       type: string,
       listener: (event: unknown) => void,
@@ -75,6 +77,35 @@ interface WebGlobals {
   };
   addEventListener?: (type: string, listener: () => void) => void;
   removeEventListener?: (type: string, listener: () => void) => void;
+}
+
+/** Visibility gates foreground polling; focus also asks for a fresh active view. */
+export function isAppVisible(): boolean {
+  if (Platform.OS !== "web")
+    return AppState.currentState === null || AppState.currentState === "active";
+  return (globalThis as WebGlobals).document?.visibilityState !== "hidden";
+}
+
+export function isAppFocused(): boolean {
+  if (!isAppVisible()) return false;
+  if (Platform.OS !== "web") return AppState.currentState === "active";
+  return (globalThis as WebGlobals).document?.hasFocus?.() ?? true;
+}
+
+export function observeAppVisibility(listener: () => void): () => void {
+  if (Platform.OS !== "web") {
+    const subscription = AppState.addEventListener("change", listener);
+    return () => subscription.remove();
+  }
+  const web = globalThis as WebGlobals;
+  web.document?.addEventListener?.("visibilitychange", listener);
+  web.addEventListener?.("focus", listener);
+  web.addEventListener?.("blur", listener);
+  return () => {
+    web.document?.removeEventListener?.("visibilitychange", listener);
+    web.removeEventListener?.("focus", listener);
+    web.removeEventListener?.("blur", listener);
+  };
 }
 
 /**

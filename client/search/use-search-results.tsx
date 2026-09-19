@@ -1,42 +1,74 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useRpc } from "@getpaseo/plugin/client";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { searchPullRequests } from "../../shared/saved-views";
-import { mergeSearchPages, SEARCH_KEY } from "../lib/search-pages";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { searchPullRequests, type SavedView } from "../../shared/saved-views";
+import { mergeSearchPages } from "../lib/search-pages";
+import { observeAppVisibility, isAppFocused } from "../web";
+import type { SearchSnapshots } from "./search-snapshot";
+import type { BackgroundClient } from "./background-client";
+import { nextSavedView, preloadSearch, searchRequest } from "./search-cache";
 
-export function useSearchResults(query: string | null, hostId: string) {
+export function useSearchResults(
+  query: string | null,
+  hostId: string,
+  viewId: string | null,
+  background: BackgroundClient,
+  views: readonly SavedView[],
+) {
   const load = useRpc(searchPullRequests);
   const client = useQueryClient();
-  const force = useRef(false);
-  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
-  useEffect(() => {
-    const timer = setInterval(() => setDay(new Date().toISOString().slice(0, 10)), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  const result = useInfiniteQuery({
-    queryKey: [SEARCH_KEY, hostId, query, day],
-    enabled: query !== null,
-    staleTime: 5 * 60_000,
-    initialPageParam: undefined as { cursor: string; effectiveDate: string } | undefined,
-    queryFn: ({ pageParam }) => {
-      const bypass = force.current;
-      force.current = false;
-      return load({ query: query ?? "", ...pageParam, force: bypass });
-    },
-    getNextPageParam: (last, pages) => {
-      const count = pages.reduce((sum, page) => sum + page.items.length, 0);
-      return last.hasNextPage && last.endCursor !== null && count < 1000
-        ? { cursor: last.endCursor, effectiveDate: last.effectiveDate }
-        : undefined;
-    },
-  });
-  const items = useMemo(() => mergeSearchPages(result.data?.pages ?? []), [result.data]);
-  const refresh = useCallback(
-    async function refresh() {
-      force.current = true;
-      await client.resetQueries({ queryKey: [SEARCH_KEY, hostId, query, day], exact: true });
-    },
-    [client, hostId, query, day],
+  const request = useMemo(
+    () => searchRequest(client, hostId, viewId, query, load, background),
+    [client, hostId, viewId, query, load, background],
   );
-  return { ...result, items, page: result.data?.pages[0] ?? null, refresh };
+  const { snapshots, options } = request;
+  const queryKey = options.queryKey;
+  const state = useSyncExternalStore(snapshots.subscribe, snapshots.getSnapshot);
+  const activeSnapshots = useRef<SearchSnapshots | null>(snapshots);
+  useEffect(() => {
+    activeSnapshots.current = snapshots;
+    return () => { activeSnapshots.current = null; };
+  }, [snapshots]);
+  const visible = useSyncExternalStore(observeAppVisibility, isAppFocused);
+  const result = useQuery({
+    ...options,
+    enabled: query !== null && visible,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
+  });
+  const nextView = nextSavedView(views, viewId);
+  const nextId = nextView?.id;
+  const nextQuery = nextView?.query;
+  useEffect(() => {
+    if (!visible || state.displayed === null || result.isFetching || !nextId || !nextQuery) return;
+    void preloadSearch(client, searchRequest(client, hostId, nextId, nextQuery, load, background));
+  }, [visible, state.displayed, result.isFetching, nextId, nextQuery, client, hostId, load, background]);
+  const { refetch } = result;
+  useEffect(() => {
+    if (query === null) return;
+    return observeAppVisibility(() => {
+      if (isAppFocused()) void refetch({ cancelRefetch: false });
+    });
+  }, [queryKey, query, refetch]);
+  const refresh = useCallback(async () => {
+    const next = await refetch({ cancelRefetch: false });
+    if (next.isSuccess && activeSnapshots.current === snapshots) snapshots.apply();
+  }, [refetch, snapshots]);
+  const data = state.displayed;
+  const items = useMemo(() => mergeSearchPages(data?.pages ?? []), [data]);
+  return {
+    data,
+    items,
+    page: data?.pages[0] ?? null,
+    error: result.error,
+    isFetching: result.isFetching,
+    isInitialLoading: data === null && result.isFetching,
+    refresh,
+    applyUpdates: snapshots.apply,
+    updateCount: state.updateCount,
+    seen: state.seen,
+  };
 }
