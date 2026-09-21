@@ -5,9 +5,30 @@ import { join, resolve } from "node:path";
 import { expect, it } from "vitest";
 import { createSearchSnapshots } from "./search-snapshot";
 
-const engine = ["osx-bin", "linux64-bin"]
-  .map((directory) => resolve("node_modules/react-native/sdks/hermesc", directory, "hermes"))
-  .find((binary) => existsSync(binary));
+function findHermes(platform: NodeJS.Platform, hasBinary: (path: string) => boolean = existsSync) {
+  const directory = platform === "darwin" ? "osx-bin" : platform === "linux" ? "linux64-bin" : null;
+  if (!directory) return undefined;
+  const binary = resolve("node_modules/react-native/sdks/hermesc", directory, "hermes");
+  return hasBinary(binary) ? binary : undefined;
+}
+
+it.each([
+  ["darwin", "osx-bin"],
+  ["linux", "linux64-bin"],
+] as const)("selects the %s interpreter when both binaries exist", (platform, directory) => {
+  expect(findHermes(platform, () => true))
+    .toBe(resolve("node_modules/react-native/sdks/hermesc", directory, "hermes"));
+});
+
+it("does not fall back to the macOS interpreter on Linux", () => {
+  expect(findHermes("linux", (binary) => binary.includes("osx-bin"))).toBeUndefined();
+});
+
+it("skips unsupported platforms even when binaries exist", () => {
+  expect(findHermes("win32", () => true)).toBeUndefined();
+});
+
+const engine = findHermes(process.platform);
 
 // Plugins are evaluated from strings, bypassing Metro's native syntax transforms.
 // Run on installations shipping the Hermes interpreter; other platforms retain
