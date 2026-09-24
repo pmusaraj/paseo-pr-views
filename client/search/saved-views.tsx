@@ -1,6 +1,6 @@
 import { checkFor, useViewChecks } from "./use-view-checks";
 import type { BackgroundClient } from "./background-client";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { SEARCH_SCOPE, type ForegroundClient } from "./foreground-client";
 import { type PluginSurfaceProps, useSettings } from "@getpaseo/plugin/client";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -18,7 +18,7 @@ import { DEFAULT_SORT_ORDER, type BoardRow } from "../lib/sort";
 import type { Styles } from "../theme/use-styles";
 import { ResultsToolbar } from "./results-toolbar";
 import { useSearchResults } from "./use-search-results";
-import { ViewEditor } from "./view-editor";
+import { ViewEditor, type ViewEditorHandle } from "./view-editor";
 
 export function SavedViews({
   props,
@@ -38,6 +38,7 @@ export function SavedViews({
   const foregroundStatus = useSyncExternalStore(foreground.subscribe, foreground.getSnapshot);
   const boardSettings = useBoardSettings();
   const [editor, setEditor] = useState<SavedView | null>(null);
+  const editorRef = useRef<ViewEditorHandle>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -241,28 +242,37 @@ export function SavedViews({
             >
               <Text style={styles.ghostButtonLabel}>New view</Text>
             </Pressable>
-            {selected === null ? null : (
-              <>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={saving}
-                  style={styles.ghostButton}
-                  onPress={() => {
-                    setEditor(selected);
-                    setDeleting(false);
-                  }}
-                >
-                  <Text style={styles.ghostButtonLabel}>Edit</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={saving}
-                  style={styles.ghostButton}
-                  onPress={() => setDeleting(true)}
-                >
-                  <Text style={styles.ghostButtonLabel}>Delete</Text>
-                </Pressable>
-              </>
+            {editor !== null ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={saving}
+                style={styles.button}
+                onPress={() => void editorRef.current?.save()}
+              >
+                <Text style={styles.buttonLabel}>Save</Text>
+              </Pressable>
+            ) : selected === null ? null : (
+              <Pressable
+                accessibilityRole="button"
+                disabled={saving}
+                style={styles.ghostButton}
+                onPress={() => {
+                  setEditor(selected);
+                  setDeleting(false);
+                }}
+              >
+                <Text style={styles.ghostButtonLabel}>Edit</Text>
+              </Pressable>
+            )}
+            {selected === null || editor !== null ? null : (
+              <Pressable
+                accessibilityRole="button"
+                disabled={saving}
+                style={styles.ghostButton}
+                onPress={() => setDeleting(true)}
+              >
+                <Text style={styles.ghostButtonLabel}>Delete</Text>
+              </Pressable>
             )}
           </View>
         </ScrollView>
@@ -297,6 +307,7 @@ export function SavedViews({
       {editor === null ? null : (
         <ViewEditor
           key={editor.id}
+          ref={editorRef}
           initial={editor}
           styles={styles}
           busy={saving}

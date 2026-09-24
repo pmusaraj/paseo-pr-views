@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useImperativeHandle, useState, type Ref } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { SavedView } from "../../shared/saved-views";
 import { SavedViewSchema } from "../../shared/saved-views";
 import type { Styles } from "../theme/use-styles";
 
+export type ViewEditorHandle = { save: () => Promise<void> };
+
 export function ViewEditor({
+  ref,
   initial,
   styles,
   busy,
@@ -13,6 +16,7 @@ export function ViewEditor({
   onPreview,
   onCancel,
 }: {
+  ref: Ref<ViewEditorHandle>;
   initial: SavedView;
   styles: Styles;
   busy: boolean;
@@ -49,6 +53,7 @@ export function ViewEditor({
     }
   };
   const save = async function save() {
+    if (disabled) return;
     const parsed = SavedViewSchema.safeParse({
       id: initial.id,
       name,
@@ -61,6 +66,7 @@ export function ViewEditor({
     }
     if (await onSave(parsed.data)) onCancel();
   };
+  useImperativeHandle(ref, () => ({ save }));
   return (
     <ScrollView
       style={{ maxHeight: 320 }}
