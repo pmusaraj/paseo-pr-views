@@ -30,6 +30,9 @@ export function useSearchResults(
     return () => { activeSnapshots.current = null; };
   }, [snapshots]);
   const visible = useSyncExternalStore(observeAppVisibility, isAppFocused);
+  useEffect(() => {
+    if (visible && query !== null) snapshots.markViewed();
+  }, [snapshots, visible, query]);
   const result = useQuery({
     ...options,
     enabled: query !== null && visible,

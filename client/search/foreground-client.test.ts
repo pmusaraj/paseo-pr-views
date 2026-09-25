@@ -60,6 +60,22 @@ describe("plugin-wide foreground refresh", () => {
     expect(ctx.store("5").getSnapshot().displayed).toBeNull();
   });
 
+  it("updates unopened views while keeping a viewed list stable", async () => {
+    const ctx = setup();
+    await vi.advanceTimersByTimeAsync(0);
+    const viewed = ctx.store("0");
+    viewed.markViewed();
+    const original = viewed.getSnapshot().displayed;
+    ctx.load.mockResolvedValue({ ...page, items: [newItem], total: 1 });
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(viewed.getSnapshot()).toMatchObject({ displayed: original, updateCount: 1 });
+    const unopened = ctx.store("1");
+    expect(unopened.getSnapshot()).toMatchObject({ pending: null, seen: null, updateCount: 0 });
+    expect(unopened.getSnapshot().displayed?.pages[0]?.items).toEqual([newItem]);
+    unopened.markViewed();
+    expect(unopened.getSnapshot().seen).toBe(unopened.getSnapshot().displayed);
+  });
+
   it("stays idle without focus and resumes an overdue sweep on focus", async () => {
     const ctx = setup(false);
     await vi.advanceTimersByTimeAsync(10 * 60_000);
@@ -78,6 +94,7 @@ describe("plugin-wide foreground refresh", () => {
   it("stages new items without changing displayed data and clears only views actually applied", async () => {
     const ctx = setup();
     await vi.advanceTimersByTimeAsync(0);
+    for (const id of ["0", "1", "2", "3", "4"]) ctx.store(id).markViewed();
     const original = ctx.store("0").getSnapshot().displayed;
     ctx.load.mockResolvedValue({ ...page, items: [newItem], total: 1 });
     await vi.advanceTimersByTimeAsync(5 * 60_000);
@@ -93,6 +110,7 @@ describe("plugin-wide foreground refresh", () => {
     const ctx = setup();
     await vi.advanceTimersByTimeAsync(0);
     const store = ctx.store("5");
+    store.markViewed();
     store.stage({ pages: [page], revision: null });
     store.stage({ pages: [{ ...page, items: [newItem], total: 1 }], revision: null });
     expect(ctx.foreground.getSnapshot().newViewIds).toEqual(["5"]);
@@ -105,6 +123,7 @@ describe("plugin-wide foreground refresh", () => {
   it("uses the latest view order and removes deleted views from unread state", async () => {
     const ctx = setup();
     await vi.advanceTimersByTimeAsync(0);
+    ctx.store("0").markViewed();
     ctx.store("0").stage({ pages: [{ ...page, items: [newItem], total: 1 }], revision: null });
     ctx.setViews(ctx.views.slice(1).reverse());
     expect(ctx.foreground.getSnapshot().newViewIds).toEqual([]);

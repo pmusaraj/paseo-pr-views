@@ -87,8 +87,9 @@ interface SnapshotState {
   updateCount: number;
 }
 
-/** Separate from the network query: refetches and invalidations cannot repaint the list. */
+/** Keep unseen results current; once viewed, hold replacements until explicitly applied. */
 export function createSearchSnapshots() {
+  let viewed = false;
   let state: SnapshotState = { displayed: null, pending: null, seen: null, updateCount: 0 };
   const listeners = new Set<() => void>();
   const publish = (next: SnapshotState) => {
@@ -102,10 +103,15 @@ export function createSearchSnapshots() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    markViewed() {
+      if (viewed) return;
+      viewed = true;
+      if (state.displayed !== null) publish({ ...state, seen: state.displayed });
+    },
     stage(next: SearchSnapshot) {
       const displayed = state.displayed;
-      if (displayed === null || displayed.pages[0]?.login !== next.pages[0]?.login) {
-        publish({ displayed: next, pending: null, seen: next, updateCount: 0 });
+      if (!viewed || displayed === null || displayed.pages[0]?.login !== next.pages[0]?.login) {
+        publish({ displayed: next, pending: null, seen: viewed ? next : null, updateCount: 0 });
         return;
       }
       const updateCount = countSearchUpdates(displayed, next);

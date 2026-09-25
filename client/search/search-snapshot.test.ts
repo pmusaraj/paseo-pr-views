@@ -26,8 +26,29 @@ function snapshot(ids: string[], revision = "1"): SearchSnapshot {
 }
 
 describe("staged search snapshots", () => {
+  it("replaces unseen results across checks without acknowledging them", () => {
+    const store = createSearchSnapshots();
+    // Plugin-wide subscriptions do not mean the user has opened this view.
+    const unsubscribe = store.subscribe(() => {});
+    store.stage(snapshot(["a"]));
+    store.stage(snapshot(["a", "b"], "2"));
+    const latest = snapshot(["c"], "3");
+    store.stage(latest);
+    expect(store.getSnapshot()).toEqual({ displayed: latest, pending: null, seen: null, updateCount: 0 });
+    store.markViewed();
+    expect(store.getSnapshot().seen).toBe(latest);
+    store.stage(snapshot(["d"], "4"));
+    expect(store.getSnapshot()).toMatchObject({ displayed: latest, seen: latest, updateCount: 2 });
+    // Revisiting must not silently apply changes to a previously viewed list.
+    store.markViewed();
+    expect(store.getSnapshot().displayed).toBe(latest);
+    unsubscribe();
+  });
+
+
   it("acknowledges only the revision actually seen, and never an incomplete or capped result", () => {
     const store = createSearchSnapshots();
+    store.markViewed();
     store.stage(snapshot(["a"], "seen"));
     store.stage(snapshot(["a", "b"], "pending"));
     expect(seenRevision(store.getSnapshot().seen)).toBe("seen");
@@ -44,6 +65,7 @@ describe("staged search snapshots", () => {
   });
   it("keeps rows and metadata unchanged until applying the cached update synchronously", () => {
     const store = createSearchSnapshots();
+    store.markViewed();
     const first = snapshot(["a", "b"]);
     const next = snapshot(["b", "c"], "2");
     store.stage(first);
@@ -79,6 +101,7 @@ describe("staged search snapshots", () => {
 
   it("compares repeated checks against displayed data and removes reverted updates", () => {
     const store = createSearchSnapshots();
+    store.markViewed();
     const first = snapshot(["a"]);
     store.stage(first);
     store.stage(snapshot(["a", "b"]));
@@ -92,6 +115,7 @@ describe("staged search snapshots", () => {
 
   it("counts an in-flight result against a snapshot applied while it was loading", () => {
     const store = createSearchSnapshots();
+    store.markViewed();
     store.stage(snapshot(["a"]));
     store.stage(snapshot(["a", "b"]));
     store.apply();
@@ -101,6 +125,7 @@ describe("staged search snapshots", () => {
 
   it("does not compare across GitHub accounts", () => {
     const store = createSearchSnapshots();
+    store.markViewed();
     store.stage(snapshot(["private-a"]));
     const next = snapshot(["private-b"]);
     next.pages[0]!.login = "other-viewer";
@@ -136,6 +161,7 @@ describe("loading replacement snapshots", () => {
 
   it("leaves both displayed and pending data intact when a replacement fails partway", async () => {
     const store = createSearchSnapshots();
+    store.markViewed();
     store.stage(snapshot(["a"]));
     store.stage(snapshot(["a", "b"]));
     const state = store.getSnapshot();
