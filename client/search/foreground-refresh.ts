@@ -1,31 +1,23 @@
 import { REFRESH_INTERVAL_MS } from "./search-snapshot";
 
-/** Plugin-wide schedule: resume an overdue sweep on focus, without catch-up bursts. */
-export function scheduleForegroundRefresh({
-  isFocused,
-  subscribe,
-  refresh,
-}: {
+const VIEW_COUNT = 4;
+const VIEW_OFFSET_MS = 10_000;
+
+/** Each view keeps its own minute cadence; focus never starts a request. */
+export function scheduleForegroundRefresh({ isFocused, refresh }: {
   isFocused: () => boolean;
-  subscribe: (listener: () => void) => () => void;
-  refresh: () => void;
+  refresh: (index: number) => void;
 }) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let nextCheckAt = 0;
-  const tick = () => {
-    clearTimeout(timer);
-    timer = undefined;
-    if (!isFocused()) return;
-    if (Date.now() >= nextCheckAt) {
-      nextCheckAt = Date.now() + REFRESH_INTERVAL_MS;
-      refresh();
-    }
-    timer = setTimeout(tick, Math.max(0, nextCheckAt - Date.now()));
-  };
-  const unsubscribe = subscribe(tick);
-  tick();
+  const intervals: ReturnType<typeof setInterval>[] = [];
+  const starts = Array.from({ length: VIEW_COUNT }, (_, index) => {
+    const tick = () => { if (!isFocused()) refresh(index); };
+    return setTimeout(() => {
+      tick();
+      intervals.push(setInterval(tick, REFRESH_INTERVAL_MS));
+    }, index * VIEW_OFFSET_MS);
+  });
   return () => {
-    clearTimeout(timer);
-    unsubscribe();
+    starts.forEach(clearTimeout);
+    intervals.forEach(clearInterval);
   };
 }

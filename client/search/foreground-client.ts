@@ -22,8 +22,8 @@ export function createForegroundClient(
   let views: readonly SavedView[] = [];
   let version = 0;
   let disposed = false;
-  let checking = false;
-  let activeKey: readonly unknown[] | null = null;
+  const checking = new Set<number>();
+  const activeKeys = new Map<number, readonly unknown[]>();
   let snapshot = { newViewIds: [] as string[] };
   const listeners = new Set<() => void>();
   const subscriptions = new Map<string, () => void>();
@@ -59,40 +59,33 @@ export function createForegroundClient(
     }
     publish();
   };
-  const refresh = async () => {
-    if (disposed || checking || !focus.isFocused()) return;
-    checking = true;
+  const refresh = async (index: number) => {
+    if (disposed || checking.has(index) || focus.isFocused()) return;
+    checking.add(index);
     try {
       const revision = version;
       const nextViews = await client.rpc(listSavedViews, {});
-      if (disposed) return;
+      if (disposed || focus.isFocused()) return;
       if (version === revision) setViews(nextViews);
-      for (const view of views.slice(0, 5)) {
-        if (disposed || !focus.isFocused()) break;
-        if (!views.slice(0, 5).some((entry) => entry.id === view.id && entry.query === view.query)) continue;
-        try {
-          // Share in-flight work and very recent focus checks with the visible surface.
-          const request = requestFor(view);
-          activeKey = request.options.queryKey;
-          await queryClient.fetchQuery({ ...request.options, staleTime: 30_000 });
-        } catch (error) {
-          if (!disposed && focus.isFocused()) console.warn("[pr-views] foreground view refresh failed", error);
-        } finally {
-          activeKey = null;
-        }
-      }
+      const view = views[index];
+      if (!view) return;
+      const request = requestFor(view);
+      activeKeys.set(index, request.options.queryKey);
+      await queryClient.fetchQuery({ ...request.options, staleTime: 30_000 });
     } catch (error) {
-      if (!disposed) console.warn("[pr-views] could not load views for foreground refresh", error);
+      if (!disposed && !focus.isFocused()) console.warn("[pr-views] background view refresh failed", error);
     } finally {
-      checking = false;
+      activeKeys.delete(index);
+      checking.delete(index);
     }
   };
   // Keep QueryClient's connectivity subscriptions alive with the PR surface closed.
   queryClient.mount();
-  const stop = scheduleForegroundRefresh({ ...focus, refresh: () => { void refresh(); } });
+  const stop = scheduleForegroundRefresh({ ...focus, refresh: (index) => { void refresh(index); } });
   const stopFocus = focus.subscribe(() => {
-    if (!focus.isFocused() && activeKey)
-      void queryClient.cancelQueries({ queryKey: activeKey, exact: true });
+    if (!focus.isFocused()) return;
+    for (const queryKey of activeKeys.values())
+      void queryClient.cancelQueries({ queryKey, exact: true });
   });
   return {
     queryClient,

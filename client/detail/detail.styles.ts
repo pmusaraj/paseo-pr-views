@@ -53,24 +53,6 @@ export function buildDetailStyles({ layout }: PluginSurfaceProps, { colors, sepa
         // rather than by lying about the value; native has no cursor anyway.
         ...(Platform.OS === "web" ? ({ cursor: "col-resize", userSelect: "none" } as object) : {}),
       },
-      /**
-       * Over the board while the panel is open: a wash towards `surface0`, the
-       * way the modal backdrop dims, plus a backdrop blur where the renderer
-       * has one — the web and desktop renderers pass the CSS through, native
-       * has no blur without a library the client bundle cannot import and
-       * keeps the wash. A press on it closes the panel.
-       */
-      detailScrim: {
-        position: "absolute" as const,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: withAlpha(colors.surface0, "99"),
-        ...(Platform.OS === "web"
-          ? ({ backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" } as object)
-          : {}),
-      },
       /** The visible line inside the handle, lit while a drag is in progress. */
       resizeGrip: { width: 2, flex: 1 },
       resizeGripActive: { backgroundColor: colors.accent },

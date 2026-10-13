@@ -5,21 +5,15 @@ import type { Styles } from "../theme/use-styles";
 import { openExternalUrl } from "../web";
 import { ReviewActions } from "./review-actions";
 
-/**
- * The row of things a panel lets you do with a card: approve and merge it
- * (pull requests only, and only once its details have loaded), send it to a
- * chat, or open it on GitHub. `onMergeOpen` only opens the confirmation
- * dialog — the merge itself is `useItemActions.runMerge`, wired up by the
- * panel once a method is chosen there.
- */
+/** Approve a PR, send it to chat, or open it on GitHub. */
 export function DetailActionsRow({
   item,
   type,
   details,
   styles,
   acting,
+  approving,
   onApprove,
-  onMergeOpen,
   onSend,
 }: {
   item: BoardItem;
@@ -27,8 +21,8 @@ export function DetailActionsRow({
   details: ItemDetails | null;
   styles: Styles;
   acting: boolean;
+  approving: boolean;
   onApprove: () => void;
-  onMergeOpen: () => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
 }) {
   return (
@@ -39,8 +33,8 @@ export function DetailActionsRow({
           details={details}
           styles={styles}
           busy={acting}
+          approving={approving}
           onApprove={onApprove}
-          onMerge={onMergeOpen}
         />
       ) : null}
       <Pressable

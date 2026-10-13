@@ -72,52 +72,37 @@ export function BoardBody({
           ) : null}
         </View>
       ) : (
-        <FlatList
-          style={styles.rowList}
-          data={displayRows}
-          keyExtractor={(row) => row.item.id}
-          renderItem={renderRow}
-          ListEmptyComponent={
-            modeRows.error !== null ? (
-              <Text style={[styles.danger, styles.empty]}>
-                {modeRows.error}
-              </Text>
-            ) : modeRows.rows.length === 0 ? (
-              <Text style={styles.empty}>Nothing here.</Text>
-            ) : (
-              <Text style={styles.empty}>
-                No items match the current filters.
-              </Text>
-            )
-          }
-          contentContainerStyle={styles.rowListContent}
-          refreshControl={
-            surfaceProps.layout.compact ? (
-              <RefreshControl
-                refreshing={busy}
-                onRefresh={() => void refresh(undefined, true)}
-              />
-            ) : undefined
-          }
-        />
-      )}
-      {/* Last in the body, so it paints over the list by order alone;
-          the header above keeps its own zIndex and stays reachable. The
-          scrim only exists where the panel leaves board to blur. */}
-      {detailTarget !== null &&
-      detailItem !== null &&
-      !surfaceProps.layout.compact ? (
-        <Animated.View
-          style={[styles.detailScrim, { opacity: detailProgress }]}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close details"
-            style={styles.menuScrim}
-            onPress={closeDetails}
+        <Pressable style={styles.rowList} onPress={closeDetails} accessible={false}>
+          <FlatList
+            style={styles.rowList}
+            data={displayRows}
+            keyExtractor={(row) => row.item.id}
+            renderItem={renderRow}
+            ListEmptyComponent={
+              modeRows.error !== null ? (
+                <Text style={[styles.danger, styles.empty]}>
+                  {modeRows.error}
+                </Text>
+              ) : modeRows.rows.length === 0 ? (
+                <Text style={styles.empty}>Nothing here.</Text>
+              ) : (
+                <Text style={styles.empty}>
+                  No items match the current filters.
+                </Text>
+              )
+            }
+            contentContainerStyle={styles.rowListContent}
+            refreshControl={
+              surfaceProps.layout.compact ? (
+                <RefreshControl
+                  refreshing={busy}
+                  onRefresh={() => void refresh(undefined, true)}
+                />
+              ) : undefined
+            }
           />
-        </Animated.View>
-      ) : null}
+        </Pressable>
+      )}
       {detailTarget !== null && detailItem !== null ? (
         <ItemDetailPanel
           // Keyed by card, so a second card never shows the first one's

@@ -1,3 +1,5 @@
+import { loadPullRequestDiff } from "./shared/pr-diff";
+import { loadPullRequestDiffHandler } from "./server/items/diff";
 import { backgroundStatus, acknowledgeView } from "./shared/background";
 import { ViewMonitor, CHECK_INTERVAL_MS } from "./server/background/monitor";
 import {
@@ -57,6 +59,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(listSavedViews, readViews);
   server.registerSettings(savedViewsSettings);
   server.handle(loadItem, loadItemHandler);
+  server.handle(loadPullRequestDiff, loadPullRequestDiffHandler);
   server.handle(loadComments, loadCommentsHandler);
   server.handle(loadImage, loadImageHandler);
   server.handle(sendOptions, sendOptionsHandler);

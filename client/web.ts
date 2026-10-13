@@ -79,7 +79,7 @@ interface WebGlobals {
   removeEventListener?: (type: string, listener: () => void) => void;
 }
 
-/** Visibility gates foreground polling; focus also asks for a fresh active view. */
+/** Visibility and focus determine whether the app is being used. */
 export function isAppVisible(): boolean {
   if (Platform.OS !== "web")
     return AppState.currentState === null || AppState.currentState === "active";

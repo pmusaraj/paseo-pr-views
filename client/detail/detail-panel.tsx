@@ -6,6 +6,7 @@ import type { BoardItem, ColumnId, ItemDetails } from "../../shared/board";
 import { loadItem } from "../../shared/board";
 import type { Styles } from "../theme/use-styles";
 import { DetailActionsRow } from "./detail-actions-row";
+import { DetailDiff } from "./detail-diff";
 import { DetailComments } from "./detail-comments";
 import { DetailDescription, DetailSummary } from "./detail-body";
 import { DetailHeader } from "./detail-header";
@@ -132,8 +133,8 @@ export function ItemDetailPanel({
           details={details}
           styles={styles}
           acting={actions.acting}
+          approving={actions.approving}
           onApprove={actions.runApprove}
-          onMergeOpen={() => actions.setMergeOpen(true)}
           onSend={onSend}
         />
         <View style={styles.detailDivider} />
@@ -154,6 +155,12 @@ export function ItemDetailPanel({
               renderImage={renderImage}
             />
             <View style={styles.detailDivider} />
+            {details.review !== null ? (
+              <>
+                <DetailDiff item={item} generation={generation} styles={styles} accentColor={accentColor} />
+                <View style={styles.detailDivider} />
+              </>
+            ) : null}
             <DetailComments
               commentsCount={item.commentsCount}
               requested={comments.requested}

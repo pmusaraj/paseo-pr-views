@@ -2,7 +2,7 @@ import type { SearchPage } from "../../shared/saved-views";
 import { mergeSearchPages } from "../lib/search-pages";
 
 export const RESULT_LIMIT = 200;
-export const REFRESH_INTERVAL_MS = 5 * 60_000;
+export const REFRESH_INTERVAL_MS = 60_000;
 export interface SearchSnapshot {
   pages: SearchPage[];
   revision: string | null;

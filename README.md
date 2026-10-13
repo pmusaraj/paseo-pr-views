@@ -6,7 +6,8 @@ Keep track of GitHub pull requests from Paseo with saved searches, background ch
 
 - Create named views using GitHub search queries. The default **Mine** view shows your open PRs and can be edited or removed.
 - See review status, CI checks, labels, comments, and lines added or deleted.
-- Read PR details in Paseo, open them on GitHub, or start a workspace chat.
+- Read PR details and file diffs in the side panel, approve with one click, open them on GitHub, or start a workspace chat.
+- Keep navigating the PR list while details are open; select another PR to switch or click empty list space to dismiss.
 - Get view indicators and a sidebar seedling when new PRs match your views.
 
 ## Install
@@ -29,13 +30,13 @@ These optional checks run every 10 minutes while the daemon is running, even wit
 
 Background checks support views with up to 1,000 results.
 
-The **first five saved views**, in tab order, load up to **200 results each every five minutes while Paseo has focus**, even when the GitHub PRs screen is closed. Views refresh sequentially and share cached results with the screen. Losing app focus pauses this work; an overdue check runs when focus returns. This does not require enabling the optional daemon checks. Additional views still load on selection and retain their optional daemon checks.
+The **first four saved views**, in tab order, load up to **200 results each every minute while Paseo is unfocused**, even when the GitHub PRs screen is closed. Refresh starts are staggered at 0, 10, 20, and 30 seconds of each minute cycle, and share cached results with the screen. Returning to focus stops background refresh work and displays the active view's cached updates without starting a new request. This does not require enabling the optional daemon checks. Additional views load on selection and retain their optional daemon checks.
 
-After the first load, displayed results stay unchanged until you click **Show updates (N)**. The count includes added, removed, and changed items, such as status, review, CI, labels, or diff statistics. Clicking displays the already-loaded results immediately. **Refresh results** and pull-to-refresh explicitly fetch and display the latest results. Newly added items in any loaded view add **🌱** to the sidebar title until those items are displayed; status-only changes still appear in that view's update count.
+Displayed results stay stable while you are using the app. Cached updates are applied when you return to Paseo or select a view. **Refresh results** and pull-to-refresh explicitly fetch and display the latest results. Newly added items in any loaded view add **🌱** to the sidebar title until those items are displayed; status-only changes still appear in that view's update count.
 
 The same button handles refreshes and pending updates: it is disabled and reads **Checking for Updates…** during a check, then becomes **Show updates (N)** if changes are ready, or returns to **Refresh results** if nothing changed.
 
-Once the active view has loaded, the next saved view is also preloaded if it has no cached results. This happens only while the app has focus, does not continue through the remaining views, and does not refresh an already-cached next view. Selecting any view shows its cached results immediately and runs a fresh check.
+Once the active view has loaded, the next saved view is also preloaded if it has no cached results. This happens only while the app has focus, does not continue through the remaining views, and does not refresh an already-cached next view. Selecting a view shows its cached results immediately; views without cached data are fetched on selection.
 
 ## Credits
 

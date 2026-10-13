@@ -1,4 +1,4 @@
-/** One reading of GitHub's GraphQL budget, as `rateLimit { ... }` reports it on every request this plugin makes. */
+/** One reading of GitHub's GraphQL budget, as `rateLimit { ... }` reports it on query requests. */
 export interface RateLimitReading {
   cost: number;
   remaining: number;
@@ -81,6 +81,9 @@ const FRAGMENT_HEADER = /^\s*fragment\s+\w+\s+on\s+\w+\s*\{/;
 function skipFragments(query: string): number {
   let index = 0;
   for (;;) {
+    // GraphQL ignores whitespace, commas, BOMs, and line comments between tokens.
+    const ignored = /^(?:[\s,\uFEFF]|#[^\r\n]*(?:\r?\n|$))*/.exec(query.slice(index));
+    index += ignored?.[0].length ?? 0;
     const match = FRAGMENT_HEADER.exec(query.slice(index));
     if (match === null) return index;
     const braceStart = index + match[0].length - 1;
@@ -90,7 +93,7 @@ function skipFragments(query: string): number {
 
 /**
  * Adds `rateLimit { cost remaining limit resetAt }` as a sibling of the
- * operation's own root fields, so every request this plugin makes reports its
+ * query's own root fields, so read requests report their
  * own cost and the budget left over. Inserted textually — every query here is
  * a hand-written string passed straight to `gh api graphql`, never built with
  * a real GraphQL parser — immediately after the operation's opening brace,
@@ -99,6 +102,9 @@ function skipFragments(query: string): number {
  */
 export function injectRateLimit(query: string): string {
   const operationStart = skipFragments(query);
+  // rateLimit belongs to GitHub's Query root, not Mutation. Leave writes
+  // intact; their subsequent detail query records the remaining budget.
+  if (!/^(?:query\b|\{)/.test(query.slice(operationStart))) return query;
   const braceIndex = query.indexOf("{", operationStart);
   if (braceIndex === -1) return query;
   return `${query.slice(0, braceIndex + 1)}\n  rateLimit { cost remaining limit resetAt }${query.slice(braceIndex + 1)}`;

@@ -1,7 +1,7 @@
 import { memo, useCallback, useState } from "react";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type GestureResponderEvent } from "react-native";
 
 import type { BoardItem, ColumnId } from "../../shared/board";
 import { linkedIssueLabel } from "../lib/formatting";
@@ -114,7 +114,8 @@ export const ItemRow = memo(function ItemRow({
    */
   const revealed = !isWeb || rowHovered || actionHovered || focused;
 
-  const open = useCallback(() => {
+  const open = useCallback((event: GestureResponderEvent) => {
+    event.stopPropagation();
     onOpen(item, type);
   }, [item, onOpen, type]);
 

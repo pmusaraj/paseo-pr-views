@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { SEARCH_KEY } from "../lib/search-pages";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 
@@ -11,6 +11,7 @@ import { approvePullRequest, mergePullRequest } from "../../shared/board";
 export interface UseItemActionsResult {
   /** One write at a time, and both buttons off while it is in flight. */
   acting: boolean;
+  approving: boolean;
   mergeOpen: boolean;
   setMergeOpen: (next: boolean) => void;
   runApprove: () => void;
@@ -37,9 +38,14 @@ export function useItemActions({
   const merge = useRpc(mergePullRequest);
   const toast = useToast();
   const [acting, setActing] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const inFlight = useRef(false);
   const [mergeOpen, setMergeOpen] = useState(false);
 
   const runApprove = useCallback(() => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setApproving(true);
     setActing(true);
     approve({ id: item.id, body: "" })
       .then((next) => {
@@ -50,11 +56,13 @@ export function useItemActions({
       .catch((cause: unknown) => {
         toast.error(cause instanceof Error ? cause.message : String(cause));
       })
-      .finally(() => setActing(false));
+      .finally(() => { inFlight.current = false; setActing(false); setApproving(false); });
   }, [approve, item.id, item.number, item.repository, onDetailsChanged, toast, queryClient]);
 
   const runMerge = useCallback(
     (method: MergeMethod) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
       setActing(true);
       merge({ id: item.id, method })
         .then((next) => {
@@ -67,10 +75,10 @@ export function useItemActions({
         .catch((cause: unknown) => {
           toast.error(cause instanceof Error ? cause.message : String(cause));
         })
-        .finally(() => setActing(false));
+        .finally(() => { inFlight.current = false; setActing(false); setApproving(false); });
     },
     [item.id, item.number, item.repository, merge, onDetailsChanged, onMerged, toast, queryClient],
   );
 
-  return { acting, mergeOpen, setMergeOpen, runApprove, runMerge };
+  return { acting, approving, mergeOpen, setMergeOpen, runApprove, runMerge };
 }

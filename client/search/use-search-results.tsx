@@ -22,7 +22,6 @@ export function useSearchResults(
     [client, hostId, viewId, query, load, background],
   );
   const { snapshots, options } = request;
-  const queryKey = options.queryKey;
   const state = useSyncExternalStore(snapshots.subscribe, snapshots.getSnapshot);
   const activeSnapshots = useRef<SearchSnapshots | null>(snapshots);
   useEffect(() => {
@@ -31,13 +30,16 @@ export function useSearchResults(
   }, [snapshots]);
   const visible = useSyncExternalStore(observeAppVisibility, isAppFocused);
   useEffect(() => {
-    if (visible && query !== null) snapshots.markViewed();
+    if (visible && query !== null) {
+      snapshots.apply();
+      snapshots.markViewed();
+    }
   }, [snapshots, visible, query]);
   const result = useQuery({
     ...options,
-    enabled: query !== null && visible,
-    staleTime: 0,
-    refetchOnMount: "always",
+    enabled: query !== null,
+    staleTime: Infinity,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
@@ -50,12 +52,6 @@ export function useSearchResults(
     void preloadSearch(client, searchRequest(client, hostId, nextId, nextQuery, load, background));
   }, [visible, state.displayed, result.isFetching, nextId, nextQuery, client, hostId, load, background]);
   const { refetch } = result;
-  useEffect(() => {
-    if (query === null) return;
-    return observeAppVisibility(() => {
-      if (isAppFocused()) void refetch({ cancelRefetch: false });
-    });
-  }, [queryKey, query, refetch]);
   const refresh = useCallback(async () => {
     const next = await refetch({ cancelRefetch: false });
     if (next.isSuccess && activeSnapshots.current === snapshots) snapshots.apply();
