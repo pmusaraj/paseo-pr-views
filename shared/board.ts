@@ -646,9 +646,11 @@ export const ItemCommentSchema = z.object({
   /**
    * 0 for a comment on the item, 1 for a reply to one — discussions thread
    * their comments one level deep, and the panel indents replies to say so.
-   * Issue and pull request comments are always 0.
+   * PR review threads also indent replies beneath their first comment.
    */
   depth: z.number().int().min(0),
+  /** File and line for inline review comments. */
+  location: z.string().optional(),
 });
 
 export type ItemComment = z.output<typeof ItemCommentSchema>;

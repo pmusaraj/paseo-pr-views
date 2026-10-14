@@ -15,6 +15,7 @@ import { MarkdownBody } from "./markdown";
  */
 export function DetailComments({
   commentsCount,
+  isPullRequest,
   requested,
   comments,
   commentsError,
@@ -25,6 +26,7 @@ export function DetailComments({
   onRequest,
 }: {
   commentsCount: number;
+  isPullRequest: boolean;
   requested: boolean;
   comments: { comments: ItemComment[]; truncated: boolean } | null;
   commentsError: string | null;
@@ -35,16 +37,17 @@ export function DetailComments({
   onRequest: () => void;
 }) {
   if (!requested) {
+    const label = isPullRequest || commentsCount === 0 ? "Load comments" : `Load ${commentsCount} ${commentsCount === 1 ? "comment" : "comments"}`;
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Load ${commentsCount} comments`}
+        accessibilityLabel={label}
         style={({ pressed }) => [styles.loadCommentsButton, pressed ? styles.cardPressed : null]}
         onPress={onRequest}
       >
         <Icon name="MessageSquare" size={14} color={foregroundColor} />
         <Text style={styles.ghostButtonLabel}>
-          {commentsCount === 0 ? "Load comments" : `Load ${commentsCount} ${commentsCount === 1 ? "comment" : "comments"}`}
+          {label}
         </Text>
       </Pressable>
     );
@@ -72,6 +75,7 @@ export function DetailComments({
               {comment.author === null ? "deleted account" : `@${comment.author}`}
               {comment.createdAt === "" ? "" : ` · ${absoluteDate(comment.createdAt)}`}
             </Text>
+            {comment.location ? <Text style={styles.detailMeta}>{comment.location}</Text> : null}
             {comment.body.trim() === "" ? (
               <Text style={styles.empty}>Empty comment.</Text>
             ) : (

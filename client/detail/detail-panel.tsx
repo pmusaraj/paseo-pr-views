@@ -163,6 +163,7 @@ export function ItemDetailPanel({
             ) : null}
             <DetailComments
               commentsCount={item.commentsCount}
+              isPullRequest={details.review !== null}
               requested={comments.requested}
               comments={comments.comments}
               commentsError={comments.commentsError}
