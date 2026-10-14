@@ -63,7 +63,7 @@ export function ViewEditor({
   };
   return (
     <ScrollView
-      style={{ maxHeight: 320 }}
+      style={{ maxHeight: 520, flexGrow: 0 }}
       contentContainerStyle={styles.settingsBody}
     >
       <Text style={styles.fieldLabel}>View name</Text>
