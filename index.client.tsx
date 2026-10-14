@@ -8,7 +8,6 @@ import type {
 } from "@getpaseo/plugin/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createForegroundClient, type ForegroundClient } from "./client/search/foreground-client";
-import { isAppFocused, observeAppVisibility } from "./client/web";
 import { SavedViews } from "./client/search/saved-views";
 import { useStyles } from "./client/theme/use-styles";
 import { BoardTimelineCard } from "./client/timeline";
@@ -29,10 +28,7 @@ function PullRequestViews(
 
 export default function contribute(client: PluginClientContext) {
   const background = createBackgroundClient(client);
-  const foreground = createForegroundClient(client, new QueryClient(), background, {
-    isFocused: isAppFocused,
-    subscribe: observeAppVisibility,
-  });
+  const foreground = createForegroundClient(client, new QueryClient(), background);
   client.addSurface("views", (props) => (
     <QueryClientProvider client={foreground.queryClient}>
       <PullRequestViews {...props} background={background} foreground={foreground} />

@@ -26,13 +26,15 @@ To start a workspace chat, add the PR’s repository as a Paseo project first. Y
 
 Edit a view and enable **Add background check**. For existing views, the checkbox saves immediately.
 
-These optional checks run every 10 minutes while the daemon is running, even with the app closed. The first check establishes a baseline; newly matching PRs then add green dots to the views and add a **🌱** to the **GitHub PRs** sidebar title. The usual PR icon stays unchanged. Indicators clear when the matching results have been displayed. Views with more than 200 matches retain the daemon's indicator because the displayed results do not cover the entire check.
+These optional checks run every 2 minutes, with enabled views staggered by 10 seconds in tab order while the daemon is running, even with the app closed. The first check establishes a baseline; newly matching PRs then add green dots to the views and add a **🌱** to the **GitHub PRs** sidebar title. The usual PR icon stays unchanged. Indicators clear when the matching results have been displayed. Views with more than 200 matches retain the daemon's indicator because the displayed results do not cover the entire check.
 
 Background checks support views with up to 1,000 results.
 
-The **first four saved views**, in tab order, load up to **200 results each every minute while Paseo is unfocused**, even when the GitHub PRs screen is closed. Refresh starts are staggered at 0, 10, 20, and 30 seconds of each minute cycle, and share cached results with the screen. Returning to focus stops background refresh work and displays the active view's cached updates without starting a new request. This does not require enabling the optional daemon checks. Additional views load on selection and retain their optional daemon checks.
+All views with **Add background check** enabled participate, with no four-view limit. The daemon owns the schedule; while Paseo is open, completed checks also refresh up to **200 full results** for the corresponding view, even when the PR screen is closed. Unchecked views load on selection or manual refresh.
 
 Displayed results stay stable while you are using the app. Cached updates are applied when you return to Paseo or select a view. **Refresh results** and pull-to-refresh explicitly fetch and display the latest results. Newly added items in any loaded view add **🌱** to the sidebar title until those items are displayed; status-only changes still appear in that view's update count.
+
+The result summary includes **Last updated N seconds/minutes ago**, based on the displayed results.
 
 The same button handles refreshes and pending updates: it is disabled and reads **Checking for Updates…** during a check, then becomes **Show updates (N)** if changes are ready, or returns to **Refresh results** if nothing changed.
 

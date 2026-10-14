@@ -105,8 +105,8 @@ export function ViewEditor({
         {updatingCheck
           ? "Saving background check…"
           : onBackgroundCheckChange === null
-            ? "Checks every 10 minutes. Enabled when you save this new view."
-            : "Checks every 10 minutes. This checkbox saves immediately."}
+            ? "Checks every 2 minutes. Enabled when you save this new view."
+            : "Checks every 2 minutes. This checkbox saves immediately."}
       </Text>
       {error === null ? null : <Text style={styles.danger}>{error}</Text>}
       <View style={styles.scopeRow}>

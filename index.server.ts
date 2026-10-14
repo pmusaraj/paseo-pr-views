@@ -1,7 +1,7 @@
 import { loadPullRequestDiff } from "./shared/pr-diff";
 import { loadPullRequestDiffHandler } from "./server/items/diff";
 import { backgroundStatus, acknowledgeView } from "./shared/background";
-import { ViewMonitor, CHECK_INTERVAL_MS } from "./server/background/monitor";
+import { ViewMonitor } from "./server/background/monitor";
 import {
   readViews,
   readChecks,
@@ -48,7 +48,7 @@ export default function contribute(server: PluginServerContext) {
         console.warn("[pr-views] background check failed", error),
       );
   };
-  const timer = setInterval(check, CHECK_INTERVAL_MS);
+  const timer = setInterval(check, 1_000);
   check();
   server.handle(backgroundStatus, async () => {
     check();

@@ -13,7 +13,7 @@ export function createBackgroundClient(client: PluginClientContext) {
   let acknowledging = 0;
   let generation = 0;
   const publish = (next: BackgroundStatus) => {
-    if (disposed) return;
+    if (disposed || JSON.stringify(snapshot) === JSON.stringify(next)) return;
     snapshot = next;
     for (const listener of listeners) listener();
   };
@@ -30,7 +30,7 @@ export function createBackgroundClient(client: PluginClientContext) {
       polling = false;
     }
   };
-  const timer = setInterval(() => void poll(), 15_000);
+  const timer = setInterval(() => void poll(), 1_000);
   void poll();
   return {
     getSnapshot: () => snapshot,

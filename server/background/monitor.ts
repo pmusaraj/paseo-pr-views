@@ -3,7 +3,8 @@ import type { SavedView } from "../../shared/saved-views";
 import type { BackgroundStatus } from "../../shared/background";
 import type { CheckRecords } from "./storage";
 
-export const CHECK_INTERVAL_MS = 10 * 60_000;
+export const CHECK_INTERVAL_MS = 2 * 60_000;
+export const CHECK_STAGGER_MS = 10_000;
 interface Dependencies {
   views(): Promise<SavedView[]>;
   read(): Promise<CheckRecords>;
@@ -18,8 +19,9 @@ export class ViewMonitor {
   private loading: Promise<CheckRecords> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private checking: Promise<void> | null = null;
-  private attempts = new Map<string, { query: string; time: number }>();
   private stopped = false;
+  private scheduled = new Map<string, { query: string; next: number }>();
+  private nextSlot = 0;
 
   constructor(private readonly dependencies: Dependencies) {}
 
@@ -78,29 +80,29 @@ export class ViewMonitor {
     for (const id of Object.keys(records))
       if (!active.has(id)) {
         delete records[id];
-        this.attempts.delete(id);
       }
     const now = this.dependencies.now();
+    for (const id of this.scheduled.keys()) {
+      if (!active.has(id)) this.scheduled.delete(id);
+    }
     const due = views.filter((view) => {
-      const attempt = this.attempts.get(view.id);
-      const previous = records[view.id];
-      const last =
-        attempt?.query === view.query
-          ? attempt.time
-          : previous?.query === view.query && previous.checkedAt
-            ? Date.parse(previous.checkedAt)
-            : 0;
-      return (
-        !previous ||
-        previous.query !== view.query ||
-        now - last >= CHECK_INTERVAL_MS
-      );
+      let schedule = this.scheduled.get(view.id);
+      if (!schedule || schedule.query !== view.query) {
+        const previous = records[view.id];
+        const last = previous?.query === view.query && previous.checkedAt
+          ? Date.parse(previous.checkedAt) : 0;
+        const next = Math.max(now, last + CHECK_INTERVAL_MS, this.nextSlot);
+        schedule = { query: view.query, next };
+        this.scheduled.set(view.id, schedule);
+        this.nextSlot = next + CHECK_STAGGER_MS;
+      }
+      return now >= schedule.next;
     });
     if (!due.length && !removed) return;
     let login: string | undefined;
     for (const view of due) {
       if (this.stopped) return;
-      this.attempts.set(view.id, { query: view.query, time: now });
+      this.scheduled.set(view.id, { query: view.query, next: now + CHECK_INTERVAL_MS });
       await this.checkView(
         view,
         records,

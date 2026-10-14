@@ -24,8 +24,8 @@ function setup() {
     monitor: new ViewMonitor(dependencies),
     dependencies,
     fetch,
-    advance(this: void) {
-      now += CHECK_INTERVAL_MS;
+    advance(this: void, duration = CHECK_INTERVAL_MS) {
+      now += duration;
     },
     setViews(this: void, value: SavedView[]) {
       views = value;
@@ -34,7 +34,26 @@ function setup() {
 }
 
 describe("background view monitor", () => {
-  it("baselines quietly, checks every ten minutes, and ignores reordering and removals", async () => {
+  it("staggers every enabled view by ten seconds, including views beyond four", async () => {
+    const { monitor, fetch, advance, setViews } = setup();
+    const views = Array.from({ length: 7 }, (_, i) => ({
+      id: String(i), name: String(i), query: `repo:team/${i}`, backgroundCheck: i !== 1,
+    }));
+    setViews(views);
+    for (let i = 0; i < 6; i++) {
+      await monitor.check();
+      expect(fetch).toHaveBeenCalledTimes(i + 1);
+      advance(10_000);
+    }
+    expect(fetch.mock.calls.map(([query]) => query)).toEqual(views.filter(v => v.backgroundCheck).map(v => v.query));
+    advance(60_000);
+    await monitor.check();
+    expect(fetch).toHaveBeenCalledTimes(7);
+    advance(10_000);
+    await monitor.check();
+    expect(fetch).toHaveBeenCalledTimes(8);
+  });
+  it("baselines quietly, checks every two minutes, and ignores reordering and removals", async () => {
     const { monitor, fetch, advance } = setup();
     await monitor.check();
     expect((await monitor.status()).mine?.unread).toBe(false);
@@ -60,6 +79,8 @@ describe("background view monitor", () => {
       { id: "mine", name: "Mine", query: "author:@me", backgroundCheck: true },
       { id: "team", name: "Team", query: "org:team", backgroundCheck: true },
     ]);
+    await monitor.check();
+    advance(10_000);
     await monitor.check();
     fetch.mockResolvedValue(["a", "b", "new"]);
     advance();

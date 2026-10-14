@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Styles } from "../theme/use-styles";
 import { openExternalUrl } from "../web";
@@ -13,6 +14,17 @@ export function ResultsToolbar({
   canRefresh: boolean;
   styles: Styles;
 }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  const fetchedAt = search.seen?.pages[0]?.fetchedAt ?? search.page?.fetchedAt;
+  const updatedAt = fetchedAt ? Date.parse(fetchedAt) : NaN;
+  const seconds = Math.max(0, Math.floor((now - updatedAt) / 1_000));
+  const age = seconds < 60
+    ? `${seconds} second${seconds === 1 ? "" : "s"}`
+    : `${Math.floor(seconds / 60)} minute${Math.floor(seconds / 60) === 1 ? "" : "s"}`;
   return (
     <View style={styles.banner}>
       {search.error === null ? null : <Text style={styles.danger}>{search.error.message}</Text>}
@@ -56,6 +68,9 @@ export function ResultsToolbar({
             {`${search.items.length} of ${search.page.total} results${search.page.total > RESULT_LIMIT ? ` (limit ${RESULT_LIMIT})` : ""}`}
           </Text>
         )}
+        {Number.isFinite(updatedAt) ? (
+          <Text style={styles.sectionHint}>Last updated {age} ago</Text>
+        ) : null}
       </View>
     </View>
   );

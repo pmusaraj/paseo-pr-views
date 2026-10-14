@@ -29,7 +29,7 @@ describe("background status client", () => {
     rpc.mockResolvedValue(cleared);
     await client.acknowledge("mine", "author:@me", "1");
     expect(client.getSnapshot()).toEqual(cleared);
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(rpc).toHaveBeenCalledTimes(3);
     client.dispose();
     await vi.advanceTimersByTimeAsync(30_000);

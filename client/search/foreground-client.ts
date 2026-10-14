@@ -4,7 +4,6 @@ import { listSavedViews, searchPullRequests, type SavedView } from "../../shared
 import { mergeSearchPages } from "../lib/search-pages";
 import type { BackgroundClient } from "./background-client";
 import { searchRequest } from "./search-cache";
-import { scheduleForegroundRefresh } from "./foreground-refresh";
 import type { LoadPage } from "./search-snapshot";
 
 // Each contribution owns its own QueryClient and is already bound to one host.
@@ -14,16 +13,12 @@ export function createForegroundClient(
   client: Pick<PluginClientContext, "rpc">,
   queryClient: QueryClient,
   background: BackgroundClient,
-  focus: {
-    isFocused: () => boolean;
-    subscribe: (listener: () => void) => () => void;
-  },
 ) {
   let views: readonly SavedView[] = [];
   let version = 0;
   let disposed = false;
-  const checking = new Set<number>();
-  const activeKeys = new Map<number, readonly unknown[]>();
+  const checking = new Set<string>();
+  const attempted = new Map<string, string>();
   let snapshot = { newViewIds: [] as string[] };
   const listeners = new Set<() => void>();
   const subscriptions = new Map<string, () => void>();
@@ -59,34 +54,38 @@ export function createForegroundClient(
     }
     publish();
   };
-  const refresh = async (index: number) => {
-    if (disposed || checking.has(index) || focus.isFocused()) return;
-    checking.add(index);
+  const refresh = async () => {
+    if (disposed) return;
     try {
       const revision = version;
       const nextViews = await client.rpc(listSavedViews, {});
-      if (disposed || focus.isFocused()) return;
+      if (disposed) return;
       if (version === revision) setViews(nextViews);
-      const view = views[index];
-      if (!view) return;
-      const request = requestFor(view);
-      activeKeys.set(index, request.options.queryKey);
-      await queryClient.fetchQuery({ ...request.options, staleTime: 30_000 });
+      const status = background.getSnapshot();
+      await Promise.all(views.filter((view) => view.backgroundCheck).map(async (view) => {
+        const check = status[view.id];
+        if (!check?.checkedAt || check.query !== view.query || check.error) return;
+        const token = JSON.stringify([view.query, check.checkedAt]);
+        if (checking.has(view.id) || attempted.get(view.id) === token) return;
+        checking.add(view.id);
+        attempted.set(view.id, token);
+        try {
+          const request = requestFor(view);
+          await queryClient.fetchQuery({ ...request.options, staleTime: 0 });
+        } catch (error) {
+          if (!disposed) console.warn("[pr-views] background view refresh failed", error);
+        } finally {
+          checking.delete(view.id);
+        }
+      }));
     } catch (error) {
-      if (!disposed && !focus.isFocused()) console.warn("[pr-views] background view refresh failed", error);
-    } finally {
-      activeKeys.delete(index);
-      checking.delete(index);
+      if (!disposed) console.warn("[pr-views] could not load background views", error);
     }
   };
-  // Keep QueryClient's connectivity subscriptions alive with the PR surface closed.
+  // The daemon owns the cadence; its successful checks drive cached result updates.
   queryClient.mount();
-  const stop = scheduleForegroundRefresh({ ...focus, refresh: (index) => { void refresh(index); } });
-  const stopFocus = focus.subscribe(() => {
-    if (!focus.isFocused()) return;
-    for (const queryKey of activeKeys.values())
-      void queryClient.cancelQueries({ queryKey, exact: true });
-  });
+  const stop = background.subscribe(() => { void refresh(); });
+  void refresh();
   return {
     queryClient,
     setViews,
@@ -100,7 +99,6 @@ export function createForegroundClient(
       if (disposed) return;
       disposed = true;
       stop();
-      stopFocus();
       for (const unsubscribe of subscriptions.values()) unsubscribe();
       subscriptions.clear();
       listeners.clear();
